@@ -2,7 +2,7 @@ import argparse
 import numpy as np
 import pandas as pd
 from src.models import bilge_agac_modeli_olustur, konsey_modeli_olustur, eski_toprak_modeli_olustur
-# todo: bu satir bizim yan odadaki src/models.py dosyasiyla kurdugumuz gizli tunel.
+# todo: bu satir bizim yan odadaki src/models.py dosyasiyla kurdugumuz tnl.
 # imalathanede urettigimiz 3 canavar makineyi bu ana santiye alanina (experiment_runner.py)
 # baglayan dev uzatma kablosudur. bu kabloyu cekmezsek bilgisayar makineleri taniyamaz hata verir.
 
@@ -64,8 +64,8 @@ def main():  # ana kontrol fonksiyonu, is akisi siralamasi buradan yonetilir
     # bazilari veriyi karistirip gelecekteki taktikleri gecmise sizdirir.
     # biz araya kalin bir zaman duvari cektik. ilk 750 islemi ogrenmeye ayirdik,
     # kalan son 250 islemi ise gelecek simulasyonu (test) icin sakliyoruz.
-    # amacimiz modelin gecmisi ezberleyen bir papagan mi yoksa gelecekteki yepyeni
-    # anomali turlerini bile yakalayabilen bir akilli mi oldugunu olcmek.
+    # amac modelin gecmisi ezberleyen bir papagan mi yoksa gelecekteki yeni
+    # anomali turlerini bile yakalayabilen bir akil mi oldugunu olcmek.
     gecmis_egitim_verisi = banka_verileri.iloc[:750]
     gelecek_test_verisi = banka_verileri.iloc[750:]
     
@@ -84,3 +84,104 @@ def main():  # ana kontrol fonksiyonu, is akisi siralamasi buradan yonetilir
 
 if __name__ == "__main__":  # bu dosyanin terminalden dogrudan ana program olarak calistirilip calistirilmadigini denetleyen sart
     main()  # dosya terminalden dogrudan tetiklendiyse ana kontrol fonksiyonunu baslatan ana salter satiri
+
+
+
+
+
+
+
+
+    # -------------------------------------------------------------------------
+    # FAZ 2: 50 TURLUK DEPREM DÖNGÜSÜ VE MODEL EĞİTİM MOTORU
+    # -------------------------------------------------------------------------
+    
+    # todo: modelin 50 farkli firtinadaki tahmin olasiliklarini toplamak icin dev bir hafiza havuzu aciyoruz
+    tum_turlar_tahmin_olasiliklari = [] # her turun 250 adetlik tahmini bu sepetin icine alt alta dizilecek
+
+    # 50 turluk buyuk kusatma basliyor; her turda seed sifresi 1'den 50'ye kadar degisecek
+        # sarsinti_seed: modelleri tek bir sansli gunde degil, 50 farkli yapay deprem altinda test etmek icin donen firtina mekanizmasidir.
+    for sarsinti_seed in range(1, 51):
+        
+        # 1. adim: o turdaki sarsinti sifresine (seed) gore ana makineyi fabrikadan cagiriyoruz
+        if secilen_model_adi == "LR":
+            from src.models import eski_toprak_modeli_olustur
+            aktif_model = eski_toprak_modeli_olustur(seed_degeri=sarsinti_seed)
+        elif secilen_model_adi == "DT":
+            from src.models import bilge_agac_modeli_olustur
+            aktif_model = bilge_agac_modeli_olustur(seed_degeri=sarsinti_seed)
+        elif secilen_model_adi == "RF":
+            from src.models import canavar_konseyi_olustur
+            aktif_model = canavar_konseyi_olustur(seed_degeri=sarsinti_seed)
+
+        # 2. adim: o turda sarsilan gecmisteki 750 islemi makineye tek tek ezberletiyoruz
+        # fit mekanizmasi: bilgisayar X_train tablosundaki harcama ve saat verilerini, y_train cevap anahtarindaki+
+        #  0 ve 1 etiketleriyle ayni satir numaralari (indeks) uzerinden milimetrik olarak eslestirir ve raporlar.
+
+        aktif_model.fit(X_train, y_train)
+
+        # 3. adim: makineyi hic gormedigi son 250 test isleminin ustune salip hırsızlık olasiliklarini (1. sutun: fraud) cekiyoruz
+        # [:, 1] yazarak sadece hirisizlik olasiligini havada yakaliyoruz
+        # 
+        # 
+        # [:, 1]: modelin arka planda otomatik urettigi ikiz paketten (sol taraf: temizlik yuzdesi, sag taraf: hirsizlik yuzdesi)
+        #  sol tarafi filtreleyip atar, sadece sagdaki sinsi hirsizlik yuzdelerini ceker.
+
+        o_turun_tahminleri = aktif_model.predict_proba(X_test)[:, 1]
+
+        # 4. adim: yakaladigimiz bu 250 adetlik sinsi olasilik skorunu buyuk hafiza havuzuna firlatiyoruz
+        tum_turlar_tahmin_olasiliklari.append(o_turun_tahminleri)
+
+    # todo: 50 tur bittiğinde elimizde her biri 250 tahminden olusan devasa bir veri matrisi birikmis olacak
+    print(f"[!] {secilen_model_adi} modeli icin 50 turluk sarsinti ve gelecek simulasyonu basariyla tamamlandi!")
+
+
+
+
+
+
+
+    # -------------------------------------------------------------------------
+    # FAZ 3: SELECTION ENTROPY (SEÇİM KARARSIZLIĞI) HESAPLAMA MOTORU
+    # -------------------------------------------------------------------------
+    import numpy as np
+
+    # 1. adim: elimizdeki o 50 satirlik lojistik havuzu matematiksel bir numpy matrisine donusturuyoruz
+    # Bu matrisin boyutu: 50 satir (depremler) x 250 sutun (gelecek test islemleri) olacak
+    matris_tahminler = np.array(tum_turlar_tahmin_olasiliklari)
+
+    # 2. adim: 250 test isleminin her biri icin 50 tur boyunca uretilen hirsizlik olasiliklarinin ortalamasini aliyoruz
+    # axis=0 yazarak dikey eksende (50 deprem boyunca) ortalama hesapliyoruz
+    # axis=0 pusulasi: bilgisayara musterilerin verilerini birbirine karistirmadan, her bir musterinin  
+    # 50 farkli firtinadak skorlarini yukaridan asagiya dikey koridorlar halinde tarayip ort.
+
+    ortalama_p = np.mean(matris_tahminler, axis=0)
+
+    # logaritma fonksiyonu sifir (0) gordugunde patlamasin diye ufak bir koruma ekliyoruz
+    # 1. Bir sonraki satırda o meşhur Shannon Entropy (log2) çarkı dönecektir.
+    # 2. Matematik kurallarına göre tam 0 (sıfır) sayısının logaritması TANIMSIZDIR.
+    # 3. Eğer model 50 tur boyunca bir işlemden yüzde yüz emin olursa ortalaması tam 0.0 veya 1.0 çıkar.
+    # 4. Tam 0 veya 1 değerleri logaritma çarkına girerse Python kilitlenir ve tüm raporlama çöker.
+    # 5. np.clip komutu bu aşırı uç sayıları tırnak makası gibi milyonda bir hassasiyetle kırpar.
+    # 6. Tam 0'ları 1e-15 (0.000000000000001) seviyesine çeker, tam 1'leri ise 0.999999999999999 seviyesine indirir.
+    # 7. Böylece matematik kuralları çiğnenmeden, bilgisayar patlamadan istatistik motoru güvenle döner.
+    ortalama_p = np.clip(ortalama_p, 1e-15, 1 - 1e-15)
+
+    # 3. adim: meshur shannon entropy formülünü matrisin uzerine saliyoruz
+    # Neden?
+    # 2. modellerin 50 farklı fırtınadaki zikzaklarını tek bir net nota (0 ile 1 arasına) bağlamamız şarttır.
+    # 3. sol Taraf [ p * log2(p) ]: Modelin o işlem için ürettiği sinsi 'hırsızlık' tereddüdünü ölçer.
+    # 4. sağ Taraf [ (1-p) * log2(1-p) ]: Modelin o işlem için ürettiği otomatik 'temizlik' tereddüdünü ölçer.
+    # 5. bu iki parça toplandığında, her işlem için 0 ile 1 arasında kurumsal bir Kararsızlık Puanı çıkar:
+    #    - SENARYO A: model 50 tur boyunca hep aynı karardaysa (p=0 veya p=1), terazi bunu görür ve 0.0 (sıfır Kararsızlık) notu verir.
+    #    - SENARYO B: model tam bir kumarbaz gibi sürekli çark ettiyse (p=0.50), terazi zirve yapar ve 1.0 (maksimum Kararsızlık) notu verir.
+    # 6. kısacası bu formül, modelin şansa mı yoksa gerçek mantığa göre mi tahmin ürettiğini mühürleyen tek tarafsız dedektördür
+    # formul: - [ p * log2(p) + (1-p) * log2(1-p) ]
+    secim_entropisi = - (ortalama_p * np.log2(ortalama_p) + (1 - ortalama_p) * np.log2(1 - ortalama_p))
+
+    # 4. adim: hutun test seti uzerindeki o genel kararsizlik ortalamasini tek bir rapor skoruna indirgiyoruz
+    genel_model_kararsizligi = np.mean(secim_entropisi)
+
+    print(f"[+] {secilen_model_adi} Modeli Icin Genel Secim Kararsizligi (Entropy): {genel_model_kararsizligi:.4f}")
+
+
