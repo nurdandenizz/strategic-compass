@@ -139,47 +139,42 @@ if __name__ == "__main__":  # bu dosyanin terminalden dogrudan ana program olara
 
 
 
-
-
     # -------------------------------------------------------------------------
-    # FAZ 3: SELECTION ENTROPY (SEÇİM KARARSIZLIĞI) HESAPLAMA MOTORU
+    # faz 3: selection entropy (secim kararsızlıgı) hesaplama motoru
     # -------------------------------------------------------------------------
-    import numpy as np
-
     # 1. adim: elimizdeki o 50 satirlik lojistik havuzu matematiksel bir numpy matrisine donusturuyoruz
-    # Bu matrisin boyutu: 50 satir (depremler) x 250 sutun (gelecek test islemleri) olacak
+    # bu matrisin boyutu: 50 satir (depremler) x 250 sutun (gelecek test islemleri) olacak
     matris_tahminler = np.array(tum_turlar_tahmin_olasiliklari)
 
     # 2. adim: 250 test isleminin her biri icin 50 tur boyunca uretilen hirsizlik olasiliklarinin ortalamasini aliyoruz
     # axis=0 yazarak dikey eksende (50 deprem boyunca) ortalama hesapliyoruz
     # axis=0 pusulasi: bilgisayara musterilerin verilerini birbirine karistirmadan, her bir musterinin  
-    # 50 farkli firtinadak skorlarini yukaridan asagiya dikey koridorlar halinde tarayip ort.
-
+    # 50 farkli firtinadak skorlarini yukaridan asagiya dikey koridorlar halinde tarayip ortalamasını almasını soyler
     ortalama_p = np.mean(matris_tahminler, axis=0)
 
     # logaritma fonksiyonu sifir (0) gordugunde patlamasin diye ufak bir koruma ekliyoruz
-    # 1. Bir sonraki satırda o meşhur Shannon Entropy (log2) çarkı dönecektir.
-    # 2. Matematik kurallarına göre tam 0 (sıfır) sayısının logaritması TANIMSIZDIR.
-    # 3. Eğer model 50 tur boyunca bir işlemden yüzde yüz emin olursa ortalaması tam 0.0 veya 1.0 çıkar.
-    # 4. Tam 0 veya 1 değerleri logaritma çarkına girerse Python kilitlenir ve tüm raporlama çöker.
+    # 1. bir sonraki satırda o meşhur shannon entropy (log2) çarkı dönecektir.
+    # 2. matematik kurallarına göre tam 0 (sıfır) sayısının logaritması tanımsızdır.
+    # 3. eğer model 50 tur boyunca bir işlemden yüzde yüz emin olursa ortalaması tam 0.0 veya 1.0 çıkar.
+    # 4. tam 0 veya 1 değerleri logaritma çarkına girerse python kilitlenir ve tüm raporlama çöker.
     # 5. np.clip komutu bu aşırı uç sayıları tırnak makası gibi milyonda bir hassasiyetle kırpar.
-    # 6. Tam 0'ları 1e-15 (0.000000000000001) seviyesine çeker, tam 1'leri ise 0.999999999999999 seviyesine indirir.
-    # 7. Böylece matematik kuralları çiğnenmeden, bilgisayar patlamadan istatistik motoru güvenle döner.
+    # 6. tam 0'ları 1e-15 (0.000000000000001) seviyesine çeker, tam 1'leri ise 0.999999999999999 seviyesine indirir.
+    # 7. böylece matematik kuralları çiğnenmeden, bilgisayar patlamadan istatistik motoru güvenle döner.
     ortalama_p = np.clip(ortalama_p, 1e-15, 1 - 1e-15)
 
     # 3. adim: meshur shannon entropy formülünü matrisin uzerine saliyoruz
-    # Neden?
-    # 2. modellerin 50 farklı fırtınadaki zikzaklarını tek bir net nota (0 ile 1 arasına) bağlamamız şarttır.
-    # 3. sol Taraf [ p * log2(p) ]: Modelin o işlem için ürettiği sinsi 'hırsızlık' tereddüdünü ölçer.
-    # 4. sağ Taraf [ (1-p) * log2(1-p) ]: Modelin o işlem için ürettiği otomatik 'temizlik' tereddüdünü ölçer.
-    # 5. bu iki parça toplandığında, her işlem için 0 ile 1 arasında kurumsal bir Kararsızlık Puanı çıkar:
-    #    - SENARYO A: model 50 tur boyunca hep aynı karardaysa (p=0 veya p=1), terazi bunu görür ve 0.0 (sıfır Kararsızlık) notu verir.
-    #    - SENARYO B: model tam bir kumarbaz gibi sürekli çark ettiyse (p=0.50), terazi zirve yapar ve 1.0 (maksimum Kararsızlık) notu verir.
-    # 6. kısacası bu formül, modelin şansa mı yoksa gerçek mantığa göre mi tahmin ürettiğini mühürleyen tek tarafsız dedektördür
+    # neden?
+    # 1. modellerin 50 farklı fırtınadaki zikzaklarını tek bir net nota (0 ile 1 arasına) bağlamamız şarttır.
+    # 2. sol taraf [ p * log2(p) ]: modelin o işlem için ürettiği sinsi 'hırsızlık' tereddüdünü ölçer.
+    # 3. sağ taraf [ (1-p) * log2(1-p) ]: modelin o işlem için ürettiği otomatik 'temizlik' tereddüdünü ölçer.
+    # 4. bu iki parça toplandığında, her işlem için 0 ile 1 arasında kurumsal bir kararsızlık puanı çıkar:
+    #    - senaryo a: model 50 tur boyunca hep aynı karardaysa (p=0 veya p=1), terazi bunu görür ve 0.0 (sıfır kararsızlık) notu verir.
+    #    - senaryo b: model tam bir kumarbaz gibi sürekli çark ettiyse (p=0.50), terazi zirve yapar ve 1.0 (maksimum kararsızlık) notu verir.
+    # 5. kısacası bu formül, modelin şansa mı yoksa gerçek mantığa göre mi tahmin ürettiğini mühürleyen tek tarafsız dedektördür
     # formul: - [ p * log2(p) + (1-p) * log2(1-p) ]
     secim_entropisi = - (ortalama_p * np.log2(ortalama_p) + (1 - ortalama_p) * np.log2(1 - ortalama_p))
 
-    # 4. adim: hutun test seti uzerindeki o genel kararsizlik ortalamasini tek bir rapor skoruna indirgiyoruz
+    # 4. adim: butun test seti uzerindeki o genel kararsizlik ortalamasini tek bir rapor skoruna indirgiyoruz
     genel_model_kararsizligi = np.mean(secim_entropisi)
 
     print(f"[+] {secilen_model_adi} Modeli Icin Genel Secim Kararsizligi (Entropy): {genel_model_kararsizligi:.4f}")
@@ -187,9 +182,8 @@ if __name__ == "__main__":  # bu dosyanin terminalden dogrudan ana program olara
 
 
 
-
-    # -------------------------------------------------------------------------
-    # faz 4: cost-sensitive evaluation (nurdan'ın finansal süzgeci)
+        # -------------------------------------------------------------------------
+    # faz 4: cost-sensitive evaluation ( finansal süzgeci)
     # -------------------------------------------------------------------------
     # 1. adim: bankanin asimetrik acidan gercek dunya maliyetlerini koda tanimliyoruz
     # c_fn: hirsizi kacirmanin devasa cezasi (false negative maliyeti)
@@ -199,34 +193,99 @@ if __name__ == "__main__":  # bu dosyanin terminalden dogrudan ana program olara
         {"isim": "1:20 agir kriz", "c_fn": 20, "c_fp": 1}
     ]
 
-    print(f"\n[!] {secilen_model_adi} icin finansal risk raporu inceleniyor...")
+    print(f"\n[!] {secilen_model_adi} Icin Finansal Risk Raporu Inceleniyor...")
 
-    # 2. adim: tanimladigimiz her bir finansal kriz senaryosu icin tek tek donuyoruz
+    # -------------------------------------------------------------------------
+    # fınansal muhasebe v lojıstık ayıklama 
+    # -------------------------------------------------------------------------
+    # 1. for senaryo dongusu: yukarıda hazırladıgımız 2 farklı krız klasorunu sırayla acar.
+    # 2. senaryo["isim"]: o an eldekı aktif klasorun uzerındekı ısım etıketıne bakar, metnı ceker.
+    # 3. senaryo["c_fn"]: klasorun ıcındekı hirsizi kacirma malıyet faturasını (10 veya 20) ayıklar.
+    # 4. senaryo["c_fp"]: klasorun ıcındekı musterıyı bosa engelleme taban bedelını (1) yakalar.
+    # 5. bu satırlar, ayıklanan bu sayıları bir sonrakı adımdaki matematıksel terazıye besler.
+    # -------------------------------------------------------------------------
     for senaryo in maliyet_senaryolari:
+
+        # -------------------------------------------------------------------------
+        # lojıstık ayıklama ve değışken kutuları gorev farkları (unpackıng)
+        # -------------------------------------------------------------------------
+        # neden bu satırlar var ve farkları ne?
+        # 1. maliyet_senaryolari dev bir sepet listesidir; bu satırlar ise o sepetten cıkan parcalardır.
+        # 2. isim kutusu (metin / raporlama): icine sadece kriz adını kaydeder, matematiksel hesaba girmez, sadece ekrana basılır.
+        # 3. c_fn kutusu (ağır finansal ceza): hırsızı kacırmanın bankaya kestıgı agir para cezası tamsayısıdır (10 veya 20).
+        # 4. c_fp kutusu (küçük operasyon bedeli): masumu bosa engellemenın getırdıgı 1 birimlik taban prestij kaybı bedelıdır.
+        # 5. farkları: biri sadece raporlama yazısıyken, dıger ıkısı esık formulu ve zarar faturası hesaplayan fiziki sayılardır!
+        # -------------------------------------------------------------------------
         isim = senaryo["isim"]
         c_fn = senaryo["c_fn"]
         c_fp = senaryo["c_fp"]
 
-        # 3. adim: dunya bankacilik standartlarindaki meshur teoretik optimal esik formulu
-        # formul: c_fp / (c_fp + c_fn)
+        # -------------------------------------------------------------------------
+        # teoretık optimal esık terazısı felsefesı (mınımum cost equatıon)
+        # -------------------------------------------------------------------------
+        # neden bu formül?
+        # 1. bankanın kasasından çıkacak toplam zarar faturasını matematiksel olarak en dip seviyeye indirmek için.
+        # 2. formül, 'toplam risk havuzu içinde masumu üzmenin payı ne kadardır?' sorusunu tartar.
+        # 3. c_fn (hırsızı kaçırma maliyeti) arttıkça, kesrin alt tarafı büyür ve çıkan eşik sonucu sıfıra yaklaşır.
+        # 4. baraj aşağı büküldükçe model çok daha tetikte bekleyen 'korkak' bir güvenlik görevlisine dönüşür.
+        #    - 1:10 senaryosunda: 1 / (1 + 10) = %9 şüphe barajı (model %9 bile hırsızlık kokusu alsa kartı kilitler).
+        #    - 1:20 senaryosunda: 1 / (1 + 20) = %4.7 şüphe barajı (ağır kriz anında en ufak tereddütte bile acımaz).
+        # 5. bu terazi eski %50 kuralını . 
+        # -------------------------------------------------------------------------
         finansal_esik = c_fp / (c_fp + c_fn)
 
-        # 4. adim: 50 deprem boyunca biriken ortalama tahminleri bu sinsi finansal süzgecten geciriyoruz
-        # ortalama olasilik finansal esigi gectiyse 'hirsizlik (1)', gecemediyse 'temiz (0)' damgasi vurulur
+        # -------------------------------------------------------------------------
+        # fınansal esıgı gecme sorgusu ve astype(ınt) muhurleme mekanızması
+        # -------------------------------------------------------------------------
+        # fınansal esıgı gectıyse ne demek?
+        # 1. ıslemın 50 turdakı ortalama hirsizlik suphesının, bankanın koruma barajını asması demektır.
+        #    - ornek: 1:10 senaryosunda baraj %9 iken bir ıslemın suphesi %15 cıkarsa, bu ıslem esıgı gecer.
+        # 2. parantez ıcı (ortalama_p >= finansal_esik): barajı gecenlere true, altında kalanlara false yazar.
+        # 3. .astype(int) muhru: true yazan tehlıkelı ıslemlerı zınk dıye '1' (bloke et / kartı kılıtle) koduna cevırır.
+        # 4. barajın altında kalıp esıgı gecemeyen false islemlerı ıse '0' (temız / gecıs ıznı ver) koduna muhurler.
+        # 5. boylece sısleme, soyut kelimeler yerıne banka altyapısının anlayacagı net sayısal emirler verılmıs olur
+        # -------------------------------------------------------------------------
         finansal_kararlar = (ortalama_p >= finansal_esik).astype(int)
 
-        # 5. adim: gercek cevap anahtari (y_test) ile bizim finansal süzgecten cikan kararlari karsilastiriyoruz
-        # kac tane hirsizi yakaladik, kac temiz musteriyi urkuttuk milimetrik hesapliyoruz
+        # -------------------------------------------------------------------------
+        # gercek cevap anahtari ve astype kalip degistirme fabrikasi
+        # -------------------------------------------------------------------------
+        # astype ne demek ve neden bu satiri ekledik?
+        # 1. y_test: o son 250 islemin gercek hayatta hirsizlik mi temiz mi oldugunu bilen asil gizli cevap anahtaridir.
+        # 2. astype: bilgisayarin hafizasindaki mantik kelimelerini (true/false) saf birer sayi kalibina dökme emridir.
+        # 3. bilgisayar bu pres makinesini gorunce gercek hirsizliklari zınk diye '1', temiz musterileri '0' yapar.
+        # 4. neden yapiyoruz?: bir alt satirdaki toplama motorunun (np.sum) hata sayilarini fırtına gibi toplayabilmesi icin.
+        # 5. boylece modelin tahminleriyle bu resmi tamsayili kılavuzu tartıp bankanin net zarar faturasini kesebiliriz
+        # -------------------------------------------------------------------------
         gercek_hirsizlar = y_test.astype(int)
-        
+
+        # -------------------------------------------------------------------------
+        # kurumsal zafiyet ve  dedektörleri (financial audit engine
+        # -------------------------------------------------------------------------
+        # 1. yanlis_alarm satiri: 
+        #    - (finansal_kararlar == 1): modelin korkup 'hırsız' damgası bastığı işlemlerdir.
+        #    - (gercek_hirsizlar == 0): cevap anahtarında aslında 'masum' olan temiz müşterilerdir.
+        #    - ortadaki & (ve) işareti: modelin panik yapıp haksız yere bloke ettiği masumları ayıklar.
+        #    - np.sum: bu iftira dosyalarını yukarıdan aşağıya dikey koridorda toplar, adetini bulur.
+        #    - finansal etkisi: bu sayı bir alt satırda c_fp (1 tl) taban prestij cezasıyla çarpılacaktır.
+        # -------------------------------------------------------------------------
         yanlis_alarm = np.sum((finansal_kararlar == 1) & (gercek_hirsizlar == 0))
+
+        # -------------------------------------------------------------------------
+        # 2. kacirilan_hirsiz satiri:
+        #    - (finansal_kararlar == 0): modelin uyku sersemi 'temiz / geçsin' dediği işlemlerdir.
+        #    - (gercek_hirsizlar == 1): cevap anahtarında aslında sinsi birer 'hırsız' olan dolandırıcılardır.
+        #    - ortadaki & (ve) işareti: modelin gözünden kaçıp bankayı soyan o sinsi delikleri ayıklar.
+        #    - np.sum: bu kaçak hırsızlık dosyalarını dikey koridorda tek tek toplar, adetini bulur.
+        #    - finansal etkisi: bankayı asıl batıran deliktir, c_fn (10 tl veya 20 tl) .
+        # -------------------------------------------------------------------------
         kacirilan_hirsiz = np.sum((finansal_kararlar == 0) & (gercek_hirsizlar == 1))
 
         # 6. adim: bankanin kasasindan cikan net tl zarar faturasini kesiyoruz
         toplam_finansal_zarar = (yanlis_alarm * c_fp) + (kacirilan_hirsiz * c_fn)
 
-        print(f"--- senaryo: {isim} ---")
-        print(f"    [*] matematiksel optimal esik degeri: {finansal_esik:.4f}")
-        print(f"    [*] bloke edilen temiz musteri (maliyet: {c_fp}): {yanlis_alarm}")
-        print(f"    [*] kacirilan sinsi hirsiz (maliyet: {c_fn}): {kacirilan_hirsiz}")
-        print(f"    [zafiyet fatura tutari] bankanin kasasindan cikan net zarar faturasi: {toplam_finansal_zarar} tl")
+        print(f"--- Senaryo: {isim} ---")
+        print(f"    [*] Matematiksel Optimal Esik Degeri: {finansal_esik:.4f}")
+        print(f"    [*] Bloke Edilen Temiz Musteri (Maliyet: {c_fp}): {yanlis_alarm}")
+        print(f"    [*] Kacirilan Sinsi Hırsiz (Maliyet: {c_fn}): {kacirilan_hirsiz}")
+        print(f"    [zafiyet fatura tutari] BANKANIN KASASINDAN CIKAN NET ZARAR FATURASI: {toplam_finansal_zarar} TL")
