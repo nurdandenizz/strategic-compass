@@ -185,3 +185,48 @@ if __name__ == "__main__":  # bu dosyanin terminalden dogrudan ana program olara
     print(f"[+] {secilen_model_adi} Modeli Icin Genel Secim Kararsizligi (Entropy): {genel_model_kararsizligi:.4f}")
 
 
+
+
+
+    # -------------------------------------------------------------------------
+    # faz 4: cost-sensitive evaluation (nurdan'ın finansal süzgeci)
+    # -------------------------------------------------------------------------
+    # 1. adim: bankanin asimetrik acidan gercek dunya maliyetlerini koda tanimliyoruz
+    # c_fn: hirsizi kacirmanin devasa cezasi (false negative maliyeti)
+    # c_fp: temiz musteriyi yanlislikla bloke etmenin kucuk cezasi (false positive maliyeti)
+    maliyet_senaryolari = [
+        {"isim": "1:10 hafif kriz", "c_fn": 10, "c_fp": 1},
+        {"isim": "1:20 agir kriz", "c_fn": 20, "c_fp": 1}
+    ]
+
+    print(f"\n[!] {secilen_model_adi} icin finansal risk raporu inceleniyor...")
+
+    # 2. adim: tanimladigimiz her bir finansal kriz senaryosu icin tek tek donuyoruz
+    for senaryo in maliyet_senaryolari:
+        isim = senaryo["isim"]
+        c_fn = senaryo["c_fn"]
+        c_fp = senaryo["c_fp"]
+
+        # 3. adim: dunya bankacilik standartlarindaki meshur teoretik optimal esik formulu
+        # formul: c_fp / (c_fp + c_fn)
+        finansal_esik = c_fp / (c_fp + c_fn)
+
+        # 4. adim: 50 deprem boyunca biriken ortalama tahminleri bu sinsi finansal süzgecten geciriyoruz
+        # ortalama olasilik finansal esigi gectiyse 'hirsizlik (1)', gecemediyse 'temiz (0)' damgasi vurulur
+        finansal_kararlar = (ortalama_p >= finansal_esik).astype(int)
+
+        # 5. adim: gercek cevap anahtari (y_test) ile bizim finansal süzgecten cikan kararlari karsilastiriyoruz
+        # kac tane hirsizi yakaladik, kac temiz musteriyi urkuttuk milimetrik hesapliyoruz
+        gercek_hirsizlar = y_test.astype(int)
+        
+        yanlis_alarm = np.sum((finansal_kararlar == 1) & (gercek_hirsizlar == 0))
+        kacirilan_hirsiz = np.sum((finansal_kararlar == 0) & (gercek_hirsizlar == 1))
+
+        # 6. adim: bankanin kasasindan cikan net tl zarar faturasini kesiyoruz
+        toplam_finansal_zarar = (yanlis_alarm * c_fp) + (kacirilan_hirsiz * c_fn)
+
+        print(f"--- senaryo: {isim} ---")
+        print(f"    [*] matematiksel optimal esik degeri: {finansal_esik:.4f}")
+        print(f"    [*] bloke edilen temiz musteri (maliyet: {c_fp}): {yanlis_alarm}")
+        print(f"    [*] kacirilan sinsi hirsiz (maliyet: {c_fn}): {kacirilan_hirsiz}")
+        print(f"    [zafiyet fatura tutari] bankanin kasasindan cikan net zarar faturasi: {toplam_finansal_zarar} tl")
