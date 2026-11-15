@@ -1,134 +1,145 @@
 import argparse
 import numpy as np
-import pandas as pd
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.linear_model import LogisticRegression
-from src.models import bilge_agac_modeli_olustur
-from src.models import konsey_modeli_olustur
-from src.models import eski_toprak_modeli_olustur
+
+from src.models import evet_hayir_modeli_olustur
+from src.models import gelismis_topluluk_modeli_olustur
+from src.models import duz_cizgi_modeli_olustur
+
 
 def sahte_banka_verisi_uret():
-    # gercekci banka ritmini simule eden veri darphanesi
+    """
+    simülasyon için sentetik bankacılık veri seti üretir.
+    %95 normal işlem, %5 sahtekarlık (fraud) oranı ile dengesiz dağılımı simüle eder
+    ve sahtekarlık işlemlerine gerçekçi davranışsal sinyaller enjekte eder.
+    """
     np.random.seed(42)
     toplam_islem = 1000
     ozellik_sayisi = 10
     
-    # %80 gunduz islemleri, %5 fraud oranini yansitacak sekilde sahte veri kurgusu
     X = np.random.randn(toplam_islem, ozellik_sayisi)
     y = np.random.choice([0, 1], size=toplam_islem, p=[0.95, 0.05])
+    
+    # sahtekarlık (y == 1) işlemlerine anlamlı davranışsal sapmalar ekleniyor
+    fraud_indeksleri = np.where(y == 1)[0]
+    
+    # 1. ve 2. özellik (ör. işlem tutarı ve işlem hızı): fraud işlemlerde ortalaması yüksek
+    X[fraud_indeksleri, 0] += 2.2
+    X[fraud_indeksleri, 1] += 1.8
+    
+    # 3. özellik (ör. hesap yaşı veya lokasyon tutarlılığı): fraud işlemlerde ortalaması düşük
+    X[fraud_indeksleri, 2] -= 1.5
+    
     return X, y
 
+
 def main():
+
     # -------------------------------------------------------------------------
-    # faz 1: altyapi, model ve veri fabrikasi
+    # FAZ 1: Altyapı ve Komut Satırı Argüman Yönetimi
     # -------------------------------------------------------------------------
-    parser = argparse.ArgumentParser(description="siber firtina deney hatti")
-    parser.add_argument("--model", type=str, required=True, help="rf, dt veya lr secimi")
-    args = parser.parse_parser = parser.parse_args()
+    parser = argparse.ArgumentParser(
+        description="Asimetrik Finansal Risk ve Model Kararlılığı Test Platformu",
+        formatter_class=argparse.RawTextHelpFormatter
+    )
+    args = parser.parse_args()
+     
+    print("[INFO] Benchmark motoru basariyla baslatildi...")
+    print("[INFO] Platform mimarisi: 3 farkli makine ogrenmesi modeli es zamanli yaristirilacaktir.")
+    print("[INFO] 1000 adet zaman sirali islem yuklendi.")
     
-    secilen_model_adi = args.model.upper()
-    print(f"[info] benchmark motoru basariyla baslatildi...")
-    print(f"[info] secilen model: {secilen_model_adi}")
-    print(f"[info] module 10: 1000 tane zaman sirali islem yuklendi.")
-    
-    # sahte veri darphanesinden ham maddeleri cekiyoruz
     X, y = sahte_banka_verisi_uret()
     
-    # zaman duvari: veri sızmasını onlemek icin kronolojik bolme
+    # zaman duvarı: Veri sızıntısını (data leakage) önlemek için kronolojik bölme
     X_train, X_test = X[:750], X[750:]
     y_train, y_test = y[:750], y[750:]
-    print(f"[info] zaman duvari cekildi! egitim verisi: 750, test verisi: 250")
+    print("[INFO] Zaman duvari cekildi! Egitim verisi: 750, Test verisi: 250\n")
     
-    tum_turlar_tahmin_olasiliklari = []
+    # jilet Refactor: Model fabrikasından gelen fonksiyon adresleri sözlüğe bağlanıyor
+    modeller_havuzu = {
+        "DT": {"isim": "Decision Tree (Kural Tabanli Agac Modeli)", "fonksiyon": evet_hayir_modeli_olustur},
+        "RF": {"isim": "Random Forest (Gelismis Topluluk Modeli)", "fonksiyon": gelismis_topluluk_modeli_olustur},
+        "LR": {"isim": "Logistic Regression (Dogrusal Parametrik Model)", "fonksiyon": duz_cizgi_modeli_olustur}
+    }
+    
+    model_nihai_zararlari = {}
+    model_nihai_kararsizliklari = {}
 
     # -------------------------------------------------------------------------
-    # faz 2: deprem dongusu ve model egitimi
+    # FAZ 2: Monte Carlo Simülasyonu ve Bootstrap Veri Sarsıntısı
     # -------------------------------------------------------------------------
-    for sarsinti_seed in range(1, 51):
-        seed_degeri = sarsinti_seed
+    for model_kod, model_bilgi in modeller_havuzu.items():
+        model_isim = model_bilgi["isim"]
+        model_fonksiyonu = model_bilgi["fonksiyon"]
         
-        if secilen_model_adi == "RF":
-            model = konsey_modeli_olustur(seed_degeri)
-        elif secilen_model_adi == "DT":
-            model = bilge_agac_modeli_olustur(seed_degeri)
-        elif secilen_model_adi == "LR":
-            model = eski_toprak_modeli_olustur(seed_degeri)
-
-        # model o turdaki sarsintili veriyle egitiliyor
-        model.fit(X_train, y_train)
+        print(f"[!] {model_isim} icin 50 turluk Monte Carlo stres testi baslatildi...")
+        tum_turlar_tahmin_olasiliklari = []
         
-        # test islemlerinin hirsizlik olasilik skorlari yakalaniyor
-        o_turun_tahminleri = model.predict_proba(X_test)[:, 1]
+        for sarsinti_seed in range(1, 51):
+            rng = np.random.default_rng(seed=sarsinti_seed)
+            
+            # bootstrap Resampling yöntemiyle eğitim veri dağılımı sarsılıyor
+            secilen_indeksler = rng.choice(750, size=750, replace=True)
+            X_train_sarsilmis = X_train[secilen_indeksler]
+            y_train_sarsilmis = y_train[secilen_indeksler]
+            
+            # dinamik model üretimi: Hantal if/elif blokları tamamen ortadan kaldırıldı
+            model = model_fonksiyonu(sarsinti_seed)
+
+            model.fit(X_train_sarsilmis, y_train_sarsilmis)
+            
+            o_turun_tahminleri = model.predict_proba(X_test)[:, 1]
+            tum_turlar_tahmin_olasiliklari.append(o_turun_tahminleri)
+
+        # -------------------------------------------------------------------------
+        # FAZ 3: Selection Entropy (Seçim Kararsızlığı) Hesaplama Motoru
+        # -------------------------------------------------------------------------
+        matris_tahminler = np.array(tum_turlar_tahmin_olasiliklari)
+        ortalama_p = np.mean(matris_tahminler, axis=0)
+        ortalama_p = np.clip(ortalama_p, 1e-15, 1 - 1e-15)
         
-        # her turun tahminlerini ana sepete kilitliyoruz ki hafiza kaybi yasanmasin
-        tum_turlar_tahmin_olasiliklari.append(o_turun_tahminleri)
+        secim_entropisi = - (ortalama_p * np.log2(ortalama_p) + (1 - ortalama_p) * np.log2(1 - ortalama_p))
+        genel_model_kararsizligi = np.mean(secim_entropisi)
+        
+        model_nihai_kararsizliklari[model_kod] = genel_model_kararsizligi
 
-    print(f"[!] {secilen_model_adi} modeli icin 50 turluk sarsinti ve gelecek simulasyonu basariyla tamamlandi!")
-
-    # -------------------------------------------------------------------------
-    # faz 3: selection entropy (secim kararsizligi) hesaplama motoru
-    # -------------------------------------------------------------------------
-    matris_tahminler = np.array(tum_turlar_tahmin_olasiliklari)
-    ortalama_p = np.mean(matris_tahminler, axis=0)
-    ortalama_p = np.clip(ortalama_p, 1e-15, 1 - 1e-15)
-    secim_entropisi = - (ortalama_p * np.log2(ortalama_p) + (1 - ortalama_p) * np.log2(1 - ortalama_p))
-    genel_model_kararsizligi = np.mean(secim_entropisi)
-
-    print(f"[+] {secilen_model_adi} Modeli Icin Genel Secim Kararsizligi (Entropy): {genel_model_kararsizligi:.4f}")
-
-    # -------------------------------------------------------------------------
-    # faz 4: cost-sensitive evaluation (finansal süzgeci)
-    # -------------------------------------------------------------------------
-    maliyet_senaryolari = [
-        {"isim": "1:10 hafif kriz", "c_fn": 10, "c_fp": 1},
-        {"isim": "1:20 agir kriz", "c_fn": 20, "c_fp": 1}
-    ]
-
-    print(f"\n[!] {secilen_model_adi} Icin Finansal Risk Raporu Inceleniyor...")
-
-    gercek_hirsizlar = y_test.astype(int)
-
-    for senaryo in maliyet_senaryolari:
-        isim = senaryo["isim"]
-        c_fn = senaryo["c_fn"]
-        c_fp = senaryo["c_fp"]
-
+        # -------------------------------------------------------------------------
+        # FAZ 4: Cost-Sensitive Evaluation (Asimetrik Maliyet Süzgeci)
+        # -------------------------------------------------------------------------
+        c_fn = 20  # False Negative Maliyeti
+        c_fp = 1   # False Positive Maliyeti
+        
         finansal_esik = c_fp / (c_fp + c_fn)
         finansal_kararlar = (ortalama_p >= finansal_esik).astype(int)
 
+        gercek_hirsizlar = y_test.astype(int)
         yanlis_alarm = np.sum((finansal_kararlar == 1) & (gercek_hirsizlar == 0))
         kacirilan_hirsiz = np.sum((finansal_kararlar == 0) & (gercek_hirsizlar == 1))
         toplam_finansal_zarar = (yanlis_alarm * c_fp) + (kacirilan_hirsiz * c_fn)
+        
+        model_nihai_zararlari[model_kod] = toplam_finansal_zarar
+        
+        print(f"    [+] Matematiksel Optimal Esik: {finansal_esik:.4f}")
+        print(f"    [+] Bloke Edilen Musteri: {yanlis_alarm} | Kacirilan Sahtekarlik: {kacirilan_hirsiz}")
+        print(f"    [+] Net Finansal Zarar: {toplam_finansal_zarar} USD\n")
 
-        print(f"--- Senaryo: {isim} ---")
-        print(f"    [*] Matematiksel Optimal Esik Degeri: {finansal_esik:.4f}")
-        print(f"    [*] Bloke Edilen Temiz Musteri (Maliyet: {c_fp}): {yanlis_alarm}")
-        print(f"    [*] Kacirilan Sinsi Hırsiz (Maliyet: {c_fn}): {kacirilan_hirsiz}")
-        print(f"    [zafiyet fatura tutari] BANKANIN KASASINDAN CIKAN NET ZARAR FATURASI: {toplam_finansal_zarar} TL")
-        # -------------------------------------------------------------------------
-    # faz 5: modeller arasi kiyaslama ve sampiyonu ilan etme (12. adim)
     # -------------------------------------------------------------------------
-    # bu bolum simulasyon sonuclarini kurumsal terazide tartarak lideri secer
-    print("\n" + "="*70)
-    print("modeller arasi finansal kiyaslama ve sampiyonluk podyumu")
-    print("="*70)
+    # FAZ 5: Karşılaştırmalı Analiz ve Dinamik Model Seçimi
+    # -------------------------------------------------------------------------
+    print("="*75)
+    print("      MODELLER ARASI RESMİ FİNANSAL KIYASLAMA VE BENCHMARK RAPORU")
+    print("="*75)
     
-    # modelin firtina sonrasindaki nihai performans ozeti ekrana basiliyor
-    print(f"[istatistik] degerlendirilen model: {secilen_model_adi}")
-    print(f"    [*] secim kararsizligi skoru (entropy): {genel_model_kararsizligi:.4f}")
-    print(f"    [*] hesaplanan finansal risk zarar faturasi: {toplam_finansal_zarar} tl")
+    for model_kod, model_bilgi in modeller_havuzu.items():
+        print(f"MODEL: {model_kod:<4} | Secim Kararsizligi (Entropy): {model_nihai_kararsizliklari[model_kod]:.4f} | Beklenen Finansal Zarar: {model_nihai_zararlari[model_kod]:>5} USD")
     
-    # en yuksek istikrari saglayan ve kasayi en iyi koruyan model ilan ediliyor
-    print("\n[analiz sonucu ve lider model secimi]")
-    print("    bankanin asimetrik maliyet süzgecinden basariyla gecen,")
-    print("    risk bilancosunu en dipte tutan ve istikrar saglayan model:")
-    print(f"    liderlik statusu verilen model: {secilen_model_adi}")
-    print("="*70 + "\n")
+    lider_model_kod = min(model_nihai_zararlari, key=model_nihai_zararlari.get)
+    
+    print("\n[ANALİZ SONUCU VE DİNAMİK MODEL SEÇİMİ]")
+    print("    Asimetrik maliyet süzgecinden basariyla gecen ve")
+    print("    risk bilancosunu en optimize düzeyde tutan lider model:")
+    print(f"     SECILEN LIDER MODEL: {modeller_havuzu[lider_model_kod]['isim']}")
+    print("="*75 + "\n")
+
 
 if __name__ == "__main__":
     main()
-    
-
-                       
-
