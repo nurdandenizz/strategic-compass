@@ -1,158 +1,159 @@
 import argparse
 import numpy as np
 
-from src.models import evet_hayir_modeli_olustur
-from src.models import gelismis_topluluk_modeli_olustur
-from src.models import duz_cizgi_modeli_olustur
+from src.models import create_decision_tree_model
+from src.models import create_random_forest_model
+from src.models import create_logistic_regression_model
 
 
-def sahte_banka_verisi_uret():
+def generate_synthetic_bank_data():
     """
-    simulasyon icin zamansal kayma (concept drift) iceren sentetik bankacilik verisi uretir.
-    %95 normal islem, %5 sahtekarlik (fraud) orani ile dengesiz dagilimi simule eder.
+    generates synthetic banking dataset with temporal concept drift for simulation.
+    simulates an imbalanced distribution (95% normal, 5% fraud)
+    and injects realistic behavioral signals into fraud transactions.
     """
     rng = np.random.default_rng(seed=42)
-    toplam_islem = 1000
-    ozellik_sayisi = 10
+    total_transactions = 1000
+    num_features = 10
 
-    x = rng.standard_normal((toplam_islem, ozellik_sayisi))
-    y = rng.choice(list((0, 1)), size=toplam_islem, p=list((0.95, 0.05)))
+    x = rng.standard_normal((total_transactions, num_features))
+    y = rng.choice(list((0, 1)), size=total_transactions, p=list((0.95, 0.05)))
 
-    # zaman trendi (concept drift): zaman ilerledikce islem davranislari hafifce kayar.
-    zaman_trendi = np.linspace(0.0, 0.6, toplam_islem)
-    x[:, 0] += zaman_trendi
-    x[:, 1] -= zaman_trendi * 0.5
+    # temporal drift (concept drift): transaction behavior gradually shifts over time
+    time_trend = np.linspace(0.0, 0.6, total_transactions)
+    x[:, 0] += time_trend
+    x[:, 1] -= time_trend * 0.5
 
-    # sahtekarlik (y == 1) islemlerine davranissal sapmalar enjekte ediliyor
-    fraud_indeksleri = np.where(y == 1)[0]
+    # injecting behavioral anomalies into fraud (y == 1) transactions
+    fraud_indices = np.where(y == 1)[0]
 
-    # 1. ve 2. ozellik (islem tutari ve hizi): fraud islemlerde yuksek
-    x[fraud_indeksleri, 0] += 2.2
-    x[fraud_indeksleri, 1] += 1.8
+    # features 1 and 2 (transaction amount and velocity): higher mean in fraud cases
+    x[fraud_indices, 0] += 2.2
+    x[fraud_indices, 1] += 1.8
 
-    # 3. ozellik (hesap yasi / lokasyon tutarliligi): fraud islemlerde dusuk
-    x[fraud_indeksleri, 2] -= 1.5
+    # feature 3 (account age or location consistency): lower mean in fraud cases
+    x[fraud_indices, 2] -= 1.5
 
     return x, y
 
 
-def ikili_entropi_hesapla(olasilik_dizisi):
-    """shannon ikili entropi formulu: h(p) = -p*log2(p) - (1-p)*log2(1-p)"""
-    p = np.clip(olasilik_dizisi, 1e-15, 1.0 - 1e-15)
+def compute_binary_entropy(prob_array):
+    """shannon binary entropy formula: h(p) = -p*log2(p) - (1-p)*log2(1-p)"""
+    p = np.clip(prob_array, 1e-15, 1.0 - 1e-15)
     return -(p * np.log2(p) + (1.0 - p) * np.log2(1.0 - p))
 
 
 def main():
     # -------------------------------------------------------------------------
-    # faz 1: altyapi ve komut satiri arguman yonetimi
+    # phase 1: infrastructure and command-line argument management
     # -------------------------------------------------------------------------
     parser = argparse.ArgumentParser(
-        description="asimetrik finansal risk ve model kararliligi test platformu (final)",
+        description="asymmetric financial risk and model stability benchmark platform (final)",
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.add_argument("--tur", type=int, default=50, help="bootstrap tur sayisi (varsayilan: 50)")
-    parser.add_argument("--fn-maliyet", type=float, default=20.0, help="sahtekarligi kacirma maliyeti (varsayilan: 20.0)")
-    parser.add_argument("--fp-maliyet", type=float, default=1.0, help="yanlis alarm maliyeti (varsayilan: 1.0)")
-    parser.add_argument("--kararsizlik-cezasi", type=float, default=50.0, help="kararsizlik ceza katsayisi (varsayilan: 50.0)")
+    parser.add_argument("--rounds", type=int, default=50, help="number of bootstrap rounds (default: 50)")
+    parser.add_argument("--fn-cost", type=float, default=20.0, help="false negative cost (default: 20.0)")
+    parser.add_argument("--fp-cost", type=float, default=1.0, help="false positive cost (default: 1.0)")
+    parser.add_argument("--instability-penalty", type=float, default=50.0, help="epistemic instability penalty weight (default: 50.0)")
     args = parser.parse_args()
 
-    print("[INFO] Benchmark motoru başarıyla başlatıldı...")
-    print(f"[INFO] Parametreler -> Tur: {args.tur} | FN: {args.fn_maliyet} | FP: {args.fp_maliyet}")
+    print("[INFO] Benchmark engine initialized successfully...")
+    print(f"[INFO] Parameters -> Rounds: {args.rounds} | FN Cost: {args.fn_cost} | FP Cost: {args.fp_cost}")
 
-    x, y = sahte_banka_verisi_uret()
+    x, y = generate_synthetic_bank_data()
 
-    # zaman duvari: veri sizintisini (data leakage) onlemek icin kronolojik bolme
+    # temporal wall: chronological split to prevent data leakage
     x_train, x_test = x[:750], x[750:]
     y_train, y_test = y[:750], y[750:]
-    print("[INFO] Zaman duvarı çekildi! Eğitim verisi: 750, Test verisi: 250\n")
+    print("[INFO] Temporal wall applied! Training set: 750, Test set: 250\n")
 
-    modeller_havuzu = {
-        "dt": {"isim": "Decision Tree (Kural Tabanlı Ağaç Modeli)", "fonksiyon": evet_hayir_modeli_olustur},
-        "rf": {"isim": "Random Forest (Gelişmiş Topluluk Modeli)", "fonksiyon": gelismis_topluluk_modeli_olustur},
-        "lr": {"isim": "Logistic Regression (Doğrusal Parametrik Model)", "fonksiyon": duz_cizgi_modeli_olustur},
+    model_pool = {
+        "dt": {"name": "Decision Tree (Rule-Based Tree Model)", "func": create_decision_tree_model},
+        "rf": {"name": "Random Forest (Ensemble Tree Model)", "func": create_random_forest_model},
+        "lr": {"name": "Logistic Regression (Linear Parametric Model)", "func": create_logistic_regression_model},
     }
 
-    model_nihai_zararlari = {}
-    model_nihai_kararsizliklari = {}
-    model_bilesik_skorlari = {}
+    final_model_losses = {}
+    final_model_instabilities = {}
+    final_composite_scores = {}
 
     # -------------------------------------------------------------------------
-    # faz 2: monte carlo simulasyonu ve bootstrap veri sarsintisi
+    # phase 2: monte carlo simulation and bootstrap data perturbation
     # -------------------------------------------------------------------------
-    for model_kod, model_bilgi in modeller_havuzu.items():
-        model_isim = model_bilgi["isim"]
-        model_fonksiyonu = model_bilgi["fonksiyon"]
+    for model_code, model_info in model_pool.items():
+        model_name = model_info["name"]
+        model_factory_func = model_info["func"]
 
-        print(f"[!] {model_isim} için {args.tur} turluk stres testi başlatıldı...")
-        tum_turlar_tahmin_olasiliklari = []
+        print(f"[!] Starting {args.rounds}-round Monte Carlo stress test for {model_name}...")
+        all_rounds_probabilities = []
 
-        for sarsinti_seed in range(1, args.tur + 1):
-            rng = np.random.default_rng(seed=sarsinti_seed)
+        for perturbation_seed in range(1, args.rounds + 1):
+            rng = np.random.default_rng(seed=perturbation_seed)
 
-            secilen_indeksler = rng.choice(len(x_train), size=len(x_train), replace=True)
-            x_train_sarsilmis = x_train[secilen_indeksler]
-            y_train_sarsilmis = y_train[secilen_indeksler]
+            selected_indices = rng.choice(len(x_train), size=len(x_train), replace=True)
+            x_train_perturbed = x_train[selected_indices]
+            y_train_perturbed = y_train[selected_indices]
 
-            model = model_fonksiyonu(sarsinti_seed)
-            model.fit(x_train_sarsilmis, y_train_sarsilmis)
+            model = model_factory_func(perturbation_seed)
+            model.fit(x_train_perturbed, y_train_perturbed)
 
-            o_turun_tahminleri = model.predict_proba(x_test)[:, 1]
-            tum_turlar_tahmin_olasiliklari.append(o_turun_tahminleri)
-
-        # -------------------------------------------------------------------------
-        # faz 3: epistemik belirsizlik (tur-ici gercek model kararsizligi)
-        # -------------------------------------------------------------------------
-        matris_tahminler = np.array(tum_turlar_tahmin_olasiliklari)
-        ortalama_p = np.mean(matris_tahminler, axis=0)
-
-        toplam_entropi = ikili_entropi_hesapla(ortalama_p)
-        tur_ici_ortalama_entropi = np.mean(ikili_entropi_hesapla(matris_tahminler), axis=0)
-        epistemik_kararsizlik = np.maximum(0.0, toplam_entropi - tur_ici_ortalama_entropi)
-
-        genel_model_kararsizligi = float(np.mean(epistemik_kararsizlik))
-        model_nihai_kararsizliklari[model_kod] = genel_model_kararsizligi
+            round_predictions = model.predict_proba(x_test)[:, 1]
+            all_rounds_probabilities.append(round_predictions)
 
         # -------------------------------------------------------------------------
-        # faz 4: cost-sensitive evaluation (asimetrik maliyet suzgeci)
+        # phase 3: epistemic uncertainty (true inter-round model instability)
         # -------------------------------------------------------------------------
-        c_fn = args.fn_maliyet
-        c_fp = args.fp_maliyet
+        predictions_matrix = np.array(all_rounds_probabilities)
+        mean_probabilities = np.mean(predictions_matrix, axis=0)
 
-        finansal_esik = c_fp / (c_fp + c_fn)
-        finansal_kararlar = (ortalama_p >= finansal_esik).astype(int)
+        total_entropy = compute_binary_entropy(mean_probabilities)
+        mean_round_entropy = np.mean(compute_binary_entropy(predictions_matrix), axis=0)
+        epistemic_instability = np.maximum(0.0, total_entropy - mean_round_entropy)
 
-        gercek_hirsizlar = y_test.astype(int)
-        yanlis_alarm = int(np.sum((finansal_kararlar == 1) & (gercek_hirsizlar == 0)))
-        kacirilan_hirsiz = int(np.sum((finansal_kararlar == 0) & (gercek_hirsizlar == 1)))
-        toplam_finansal_zarar = (yanlis_alarm * c_fp) + (kacirilan_hirsiz * c_fn)
+        overall_model_instability = float(np.mean(epistemic_instability))
+        final_model_instabilities[model_code] = overall_model_instability
 
-        bilesik_risk_skoru = toplam_finansal_zarar + (genel_model_kararsizligi * args.kararsizlik_cezasi)
+        # -------------------------------------------------------------------------
+        # phase 4: cost-sensitive evaluation (asymmetric financial filter)
+        # -------------------------------------------------------------------------
+        c_fn = args.fn_cost
+        c_fp = args.fp_cost
 
-        model_nihai_zararlari[model_kod] = toplam_finansal_zarar
-        model_bilesik_skorlari[model_kod] = bilesik_risk_skoru
+        financial_threshold = c_fp / (c_fp + c_fn)
+        financial_decisions = (mean_probabilities >= financial_threshold).astype(int)
 
-        print(f"    [+] Optimal Eşik: {finansal_esik:.4f} | FP: {yanlis_alarm} | FN: {kacirilan_hirsiz}")
-        print(f"    [+] Finansal Zarar: {toplam_finansal_zarar:.1f} USD | Epistemik Kararsızlık: {genel_model_kararsizligi:.4f}\n")
+        actual_frauds = y_test.astype(int)
+        false_alarms = int(np.sum((financial_decisions == 1) & (actual_frauds == 0)))
+        missed_frauds = int(np.sum((financial_decisions == 0) & (actual_frauds == 1)))
+        total_financial_loss = (false_alarms * c_fp) + (missed_frauds * c_fn)
+
+        composite_risk_score = total_financial_loss + (overall_model_instability * args.instability_penalty)
+
+        final_model_losses[model_code] = total_financial_loss
+        final_composite_scores[model_code] = composite_risk_score
+
+        print(f"    [+] Optimal Threshold: {financial_threshold:.4f} | FP: {false_alarms} | FN: {missed_frauds}")
+        print(f"    [+] Financial Loss: {total_financial_loss:.1f} USD | Epistemic Instability: {overall_model_instability:.4f}\n")
 
     # -------------------------------------------------------------------------
-    # faz 5: karsilastirmali analiz ve risk-dengeli lider secimi
+    # phase 5: comparative analysis and risk-weighted model selection
     # -------------------------------------------------------------------------
     print("=" * 88)
-    print("           MODELLER ARASI RESMİ FİNANSAL KIYASLAMA VE BENCHMARK RAPORU")
+    print("           OFFICIAL FINANCIAL BENCHMARK AND MODEL COMPARISON REPORT")
     print("=" * 88)
 
-    for model_kod in modeller_havuzu:
+    for model_code in model_pool:
         print(
-            f"MODEL: {model_kod.upper():<4} | "
-            f"Epistemik Kararsızlık: {model_nihai_kararsizliklari[model_kod]:.4f} | "
-            f"Finansal Zarar: {model_nihai_zararlari[model_kod]:>6.1f} USD | "
-            f"Bileşik Risk Skoru: {model_bilesik_skorlari[model_kod]:>6.2f}"
+            f"MODEL: {model_code.upper():<4} | "
+            f"Epistemic Instability: {final_model_instabilities[model_code]:.4f} | "
+            f"Financial Loss: {final_model_losses[model_code]:>6.1f} USD | "
+            f"Composite Risk Score: {final_composite_scores[model_code]:>6.2f}"
         )
 
-    lider_model_kod = min(model_bilesik_skorlari, key=model_bilesik_skorlari.get)
+    champion_model_code = min(final_composite_scores, key=final_composite_scores.get)
 
-    print("\n[ANALİZ SONUCU VE DİNAMİK MODEL SEÇİMİ]")
-    print(f"     SEÇİLEN LİDER MODEL: {modeller_havuzu[lider_model_kod]['isim']}")
+    print("\n[ANALYSIS RESULT AND DYNAMIC MODEL SELECTION]")
+    print(f"     SELECTED CHAMPION MODEL: {model_pool[champion_model_code]['name']}")
     print("=" * 88 + "\n")
 
 
